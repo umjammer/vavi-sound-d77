@@ -7,9 +7,13 @@
 package vavi.sound.midi.d77;
 
 import java.io.IOException;
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import javax.sound.midi.Instrument;
 import javax.sound.midi.MidiChannel;
 import javax.sound.midi.MidiMessage;
@@ -27,7 +31,6 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
 import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.SourceDataLine;
-import com.sun.jna.Memory;
 import com.sun.jna.Pointer;
 
 
@@ -39,22 +42,26 @@ import com.sun.jna.Pointer;
  */
 public class D77Synthesizer implements Synthesizer {
 
-    private static final D77Coredrv lib = D77Coredrv.INSTANCE;
+    private static final Logger logger = System.getLogger(D77Synthesizer.class.getName());
+
+    private static final D77Driver lib = D77Driver.INSTANCE;
 
     private boolean isOpen;
     private SourceDataLine line;
     private Thread renderThread;
     private volatile boolean running;
+    private final ConcurrentLinkedQueue<MidiMessage> messageQueue = new ConcurrentLinkedQueue<>();
 
     private String dataFilePath = System.getProperty("vavi.sound.midi.d77.datafile", "src/main/resources/dswebWDM.dat");
 
     private static class D77Info extends Info {
+
         protected D77Info() {
             super("WebSynth D-77", "M-HT / Roman Pauer", "Software Synthesizer", "0.0.1");
         }
     }
 
-    private static final Info info = new D77Info();
+    static final Info info = new D77Info();
 
     @Override
     public Info getDeviceInfo() {
@@ -86,15 +93,15 @@ public class D77Synthesizer implements Synthesizer {
             }
 
             lib.D77_InitializeUnknown(0);
-            lib.D77_InitializeEffect(D77Coredrv.D77_EFFECT_Reverb, 1);
-            lib.D77_InitializeEffect(D77Coredrv.D77_EFFECT_Chorus, 1);
+            lib.D77_InitializeEffect(D77Driver.D77_EFFECT_Reverb, 1);
+            lib.D77_InitializeEffect(D77Driver.D77_EFFECT_Chorus, 1);
             lib.D77_InitializeCpuLoad(60, 90);
             lib.D77_InitializeMasterVolume(100);
 
             AudioFormat format = new AudioFormat(sampleRate, 16, 2, true, false);
             DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
             line = (SourceDataLine) AudioSystem.getLine(info);
-            line.open(format);
+            line.open(format, 8192); // Lower buffer size for lower latency/jitter
             line.start();
 
             running = true;
@@ -114,6 +121,22 @@ public class D77Synthesizer implements Synthesizer {
         byte[] byteBuffer = new byte[buffer.length * 2];
 
         while (running) {
+            MidiMessage message;
+            while ((message = messageQueue.poll()) != null) {
+                if (message instanceof ShortMessage sm) {
+                    int packed = (sm.getStatus() & 0xff) | ((sm.getData1() & 0x7f) << 8) | ((sm.getData2() & 0x7f) << 16);
+                    lib.D77_MidiMessageShort(packed);
+                } else if (message instanceof SysexMessage sysex) {
+                    byte[] data = sysex.getMessage();
+                    Pointer p = lib.D77_AllocateMemory(data.length);
+                    if (p != null) {
+                        p.write(0, data, 0, data.length);
+                        lib.D77_MidiMessageLong(p, data.length);
+                        lib.D77_FreeMemory(p, data.length);
+                    }
+                }
+            }
+
             if (lib.D77_RenderSamples(buffer) != 0) {
                 for (int i = 0; i < buffer.length; i++) {
                     byteBuffer[i * 2] = (byte) (buffer[i] & 0xff);
@@ -133,7 +156,7 @@ public class D77Synthesizer implements Synthesizer {
         try {
             if (renderThread != null) renderThread.join();
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            logger.log(Level.ERROR, e.getMessage(), e);
         }
         if (line != null) {
             line.stop();
@@ -169,7 +192,11 @@ public class D77Synthesizer implements Synthesizer {
 
     @Override
     public List<Receiver> getReceivers() {
-        return null;
+        return Collections.singletonList(getReceiverImpl());
+    }
+
+    private Receiver getReceiverImpl() {
+        return new D77Receiver();
     }
 
     @Override
@@ -179,7 +206,7 @@ public class D77Synthesizer implements Synthesizer {
 
     @Override
     public List<Transmitter> getTransmitters() {
-        return null;
+        return Collections.emptyList();
     }
 
     @Override
@@ -214,7 +241,6 @@ public class D77Synthesizer implements Synthesizer {
 
     @Override
     public void unloadInstrument(Instrument instrument) {
-
     }
 
     @Override
@@ -244,7 +270,6 @@ public class D77Synthesizer implements Synthesizer {
 
     @Override
     public void unloadAllInstruments(Soundbank soundbank) {
-
     }
 
     @Override
@@ -254,22 +279,24 @@ public class D77Synthesizer implements Synthesizer {
 
     @Override
     public void unloadInstruments(Soundbank soundbank, Patch[] patchList) {
-
     }
 
-    private static class D77Receiver implements Receiver {
+    private class D77Receiver implements Receiver {
+
         @Override
         public void send(MidiMessage message, long timeStamp) {
-            if (message instanceof ShortMessage) {
-                ShortMessage sm = (ShortMessage) message;
-                int packed = (sm.getStatus() & 0xff) | ((sm.getData1() & 0x7f) << 8) | ((sm.getData2() & 0x7f) << 16);
-                lib.D77_MidiMessageShort(packed);
-            } else if (message instanceof SysexMessage) {
-                SysexMessage sysex = (SysexMessage) message;
-                byte[] data = sysex.getMessage();
-                Pointer p = new Memory(data.length);
-                p.write(0, data, 0, data.length);
-                lib.D77_MidiMessageLong(p, data.length);
+            try {
+                if (message instanceof ShortMessage sm) {
+                    ShortMessage copy = new ShortMessage();
+                    copy.setMessage(sm.getStatus(), sm.getData1(), sm.getData2());
+                    messageQueue.offer(copy);
+                } else if (message instanceof SysexMessage sm) {
+                    SysexMessage copy = new SysexMessage();
+                    copy.setMessage(sm.getMessage(), sm.getLength());
+                    messageQueue.offer(copy);
+                }
+            } catch (Exception e) {
+                logger.log(Level.ERROR, e.getMessage(), e);
             }
         }
 

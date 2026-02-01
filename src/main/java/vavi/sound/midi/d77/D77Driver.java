@@ -16,14 +16,14 @@ import com.sun.jna.Structure;
 
 
 /**
- * D77Coredrv.
+ * D77Driver.
  *
  * @author <a href="mailto:umjammer@gmail.com">Naohide Sano</a> (nsano)
  * @version 0.00 2026-02-01 nsano initial version <br>
  */
-public interface D77Coredrv extends Library {
+public interface D77Driver extends Library {
 
-    D77Coredrv INSTANCE = Native.load("d77_coredrv", D77Coredrv.class);
+    D77Driver INSTANCE = Native.load("d77_coredrv", D77Driver.class);
 
     @Structure.FieldOrder({
         "dwSamplingFreq", "dwPolyphony", "dwCpuLoadL", "dwCpuLoadH", "dwRevSw", "dwChoSw", "dwMVol",
