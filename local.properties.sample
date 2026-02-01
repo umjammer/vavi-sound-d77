@@ -1,0 +1,5 @@
+vavi.test.volume.midi=0.5
+
+vavi.sound.midi.d77.datafile=/usr/local/src/websynth_d-77/datafile/dswebWDM.dat
+
+midi=/Users/foo/Music/midi/test.mid
