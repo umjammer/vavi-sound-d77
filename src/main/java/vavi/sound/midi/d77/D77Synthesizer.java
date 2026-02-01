@@ -33,6 +33,8 @@ import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.SourceDataLine;
 import com.sun.jna.Pointer;
 
+import static vavi.sound.SoundUtil.volume;
+
 
 /**
  * D77Synthesizer.
@@ -52,7 +54,7 @@ public class D77Synthesizer implements Synthesizer {
     private volatile boolean running;
     private final ConcurrentLinkedQueue<MidiMessage> messageQueue = new ConcurrentLinkedQueue<>();
 
-    private String dataFilePath = System.getProperty("vavi.sound.midi.d77.datafile", "src/main/resources/dswebWDM.dat");
+    private final String dataFilePath = System.getProperty("vavi.sound.midi.d77.datafile", "src/main/resources/dswebWDM.dat");
 
     private static class D77Info extends Info {
 
@@ -291,6 +293,18 @@ public class D77Synthesizer implements Synthesizer {
                     copy.setMessage(sm.getStatus(), sm.getData1(), sm.getData2());
                     messageQueue.offer(copy);
                 } else if (message instanceof SysexMessage sm) {
+                    byte[] data = sm.getData();
+                    switch (data[0]) {
+                        case 0x7f -> { // Universal Realtime
+                            int c = data[1]; // 0x7f: Disregards channel
+                            // Sub-ID, Sub-ID2
+                            if (data[2] == 0x04 && data[3] == 0x01) { // Device Control / Master Volume
+                                float gain = ((data[4] & 0x7f) | ((data[5] & 0x7f) << 7)) / 16383f;
+logger.log(Level.DEBUG, "sysex volume: gain: %4.2f".formatted(gain));
+                                volume(line, gain);
+                            }
+                        }
+                    }
                     SysexMessage copy = new SysexMessage();
                     copy.setMessage(sm.getMessage(), sm.getLength());
                     messageQueue.offer(copy);

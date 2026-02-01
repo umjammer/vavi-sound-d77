@@ -59,6 +59,12 @@
     </dependency>
 
     <dependency>
+      <groupId>com.github.umjammer</groupId> <!-- com.github.umjammer / vavi -->
+      <artifactId>vavi-sound</artifactId>
+      <version>1.0.22</version>
+    </dependency>
+
+    <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>
       <scope>test</scope>
@@ -71,13 +77,6 @@
     <dependency>
       <groupId>org.junit.platform</groupId>
       <artifactId>junit-platform-commons</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <dependency>
-      <groupId>com.github.umjammer</groupId> <!-- com.github.umjammer / vavi -->
-      <artifactId>vavi-sound</artifactId>
-      <version>1.0.22</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
