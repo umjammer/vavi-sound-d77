@@ -33,6 +33,8 @@ import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.SourceDataLine;
 import com.sun.jna.Pointer;
 
+import static vavi.sound.SoundUtil.volume;
+
 
 /**
  * D77Synthesizer.
@@ -52,7 +54,7 @@ public class D77Synthesizer implements Synthesizer {
     private volatile boolean running;
     private final ConcurrentLinkedQueue<MidiMessage> messageQueue = new ConcurrentLinkedQueue<>();
 
-    private String dataFilePath = System.getProperty("vavi.sound.midi.d77.datafile", "src/main/resources/dswebWDM.dat");
+    private final String dataFilePath = System.getProperty("vavi.sound.midi.d77.datafile", "src/main/resources/dswebWDM.dat");
 
     private static class D77Info extends Info {
 
@@ -82,23 +84,59 @@ public class D77Synthesizer implements Synthesizer {
             }
             pData.write(0, data, 0, data.length);
 
+            Pointer settingsMemory = lib.D77_AllocateMemory(new D77Driver.D77_SETTINGS().size());
+            if (settingsMemory == null) throw new MidiUnavailableException("Failed to allocate memory for settings");
+            D77Driver.D77_SETTINGS settings = new D77Driver.D77_SETTINGS(settingsMemory);
+
+            settings.dwSamplingFreq = 44100;
+            settings.dwPolyphony = 64;
+            settings.dwCpuLoadL = 60;
+            settings.dwCpuLoadH = 90;
+            settings.dwRevSw = 1;
+            settings.dwChoSw = 1;
+            settings.dwMVol = 100;
+            settings.dwRevAdj = 95;
+            settings.dwChoAdj = 70;
+            settings.dwOutLev = 110;
+            settings.dwRevFb = 95;
+            settings.dwRevDrm = 80;
+            settings.dwResoUpAdj = 40;
+            settings.dwCacheSize = 3;
+            settings.dwTimeReso = 80;
+
+            lib.D77_ValidateSettings(settings);
+
             if (lib.D77_InitializeDataFile(pData, data.length - 4) == 0) {
                 throw new MidiUnavailableException("Failed to initialize data file");
             }
 
-            int sampleRate = 44100;
-            int polyphony = 64;
-            if (lib.D77_InitializeSynth(sampleRate, polyphony, 80) == 0) {
+            if (lib.D77_InitializeSynth(settings.dwSamplingFreq, settings.dwPolyphony, settings.dwTimeReso) == 0) {
                 throw new MidiUnavailableException("Failed to initialize synth");
             }
 
             lib.D77_InitializeUnknown(0);
-            lib.D77_InitializeEffect(D77Driver.D77_EFFECT_Reverb, 1);
-            lib.D77_InitializeEffect(D77Driver.D77_EFFECT_Chorus, 1);
-            lib.D77_InitializeCpuLoad(60, 90);
-            lib.D77_InitializeMasterVolume(100);
+            lib.D77_InitializeEffect(D77Driver.D77_EFFECT_Reverb, settings.dwRevSw);
+            lib.D77_InitializeEffect(D77Driver.D77_EFFECT_Chorus, settings.dwChoSw);
+            lib.D77_InitializeCpuLoad(settings.dwCpuLoadL, settings.dwCpuLoadH);
 
-            AudioFormat format = new AudioFormat(sampleRate, 16, 2, true, false);
+            Pointer paramsMemory = lib.D77_AllocateMemory(new D77Driver.D77_PARAMETERS().size());
+            if (paramsMemory == null) throw new MidiUnavailableException("Failed to allocate memory for parameters");
+            D77Driver.D77_PARAMETERS params = new D77Driver.D77_PARAMETERS(paramsMemory);
+
+            params.wChoAdj = (short) settings.dwChoAdj;
+            params.wRevAdj = (short) settings.dwRevAdj;
+            params.wRevDrm = (short) settings.dwRevDrm;
+            params.wRevFb = (short) settings.dwRevFb;
+            params.wOutLev = (short) settings.dwOutLev;
+            params.wResoUpAdj = (short) settings.dwResoUpAdj;
+            lib.D77_InitializeParameters(params);
+
+            lib.D77_InitializeMasterVolume(settings.dwMVol);
+
+            lib.D77_FreeMemory(settingsMemory, settings.size());
+            lib.D77_FreeMemory(paramsMemory, params.size());
+
+            AudioFormat format = new AudioFormat(settings.dwSamplingFreq, 16, 2, true, false);
             DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
             line = (SourceDataLine) AudioSystem.getLine(info);
             line.open(format, 8192); // Lower buffer size for lower latency/jitter
@@ -117,34 +155,38 @@ public class D77Synthesizer implements Synthesizer {
 
     private void renderLoop() {
         int samplesPerCall = lib.D77_GetRenderedSamplesPerCall();
-        short[] buffer = new short[samplesPerCall * 2];
-        byte[] byteBuffer = new byte[buffer.length * 2];
+        int bufferSize = samplesPerCall * 2 * 2; // stereo * 16bit
+        Pointer sampleBuffer = lib.D77_AllocateMemory(bufferSize);
+        byte[] byteBuffer = new byte[bufferSize];
 
-        while (running) {
-            MidiMessage message;
-            while ((message = messageQueue.poll()) != null) {
-                if (message instanceof ShortMessage sm) {
-                    int packed = (sm.getStatus() & 0xff) | ((sm.getData1() & 0x7f) << 8) | ((sm.getData2() & 0x7f) << 16);
-                    lib.D77_MidiMessageShort(packed);
-                } else if (message instanceof SysexMessage sysex) {
-                    byte[] data = sysex.getMessage();
-                    Pointer p = lib.D77_AllocateMemory(data.length);
-                    if (p != null) {
-                        p.write(0, data, 0, data.length);
-                        lib.D77_MidiMessageLong(p, data.length);
-                        lib.D77_FreeMemory(p, data.length);
+        try {
+            while (running) {
+                MidiMessage message;
+                while ((message = messageQueue.poll()) != null) {
+                    if (message instanceof ShortMessage sm) {
+                        int packed = (sm.getStatus() & 0xff) | ((sm.getData1() & 0x7f) << 8) | ((sm.getData2() & 0x7f) << 16);
+                        lib.D77_MidiMessageShort(packed);
+                    } else if (message instanceof SysexMessage sysex) {
+                        byte[] data = sysex.getMessage();
+                        Pointer p = lib.D77_AllocateMemory(data.length);
+                        if (p != null) {
+                            p.write(0, data, 0, data.length);
+                            lib.D77_MidiMessageLong(p, data.length);
+                            lib.D77_FreeMemory(p, data.length);
+                        }
                     }
                 }
-            }
 
-            if (lib.D77_RenderSamples(buffer) != 0) {
-                for (int i = 0; i < buffer.length; i++) {
-                    byteBuffer[i * 2] = (byte) (buffer[i] & 0xff);
-                    byteBuffer[i * 2 + 1] = (byte) ((buffer[i] >> 8) & 0xff);
+                if (lib.D77_RenderSamples(sampleBuffer) != 0) {
+                    sampleBuffer.read(0, byteBuffer, 0, bufferSize);
+                    line.write(byteBuffer, 0, byteBuffer.length);
+                } else {
+                    Thread.yield();
                 }
-                line.write(byteBuffer, 0, byteBuffer.length);
-            } else {
-                Thread.yield();
+            }
+        } finally {
+            if (sampleBuffer != null) {
+                lib.D77_FreeMemory(sampleBuffer, bufferSize);
             }
         }
     }
@@ -291,6 +333,18 @@ public class D77Synthesizer implements Synthesizer {
                     copy.setMessage(sm.getStatus(), sm.getData1(), sm.getData2());
                     messageQueue.offer(copy);
                 } else if (message instanceof SysexMessage sm) {
+                    byte[] data = sm.getData();
+                    switch (data[0]) {
+                        case 0x7f -> { // Universal Realtime
+                            int c = data[1]; // 0x7f: Disregards channel
+                            // Sub-ID, Sub-ID2
+                            if (data[2] == 0x04 && data[3] == 0x01) { // Device Control / Master Volume
+                                float gain = ((data[4] & 0x7f) | ((data[5] & 0x7f) << 7)) / 16383f;
+logger.log(Level.DEBUG, "sysex volume: gain: %4.2f".formatted(gain));
+                                volume(line, gain);
+                            }
+                        }
+                    }
                     SysexMessage copy = new SysexMessage();
                     copy.setMessage(sm.getMessage(), sm.getLength());
                     messageQueue.offer(copy);

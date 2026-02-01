@@ -50,6 +50,11 @@ public interface D77Driver extends Library {
         public D77_SETTINGS() {
             super(ALIGN_GNUC); // #pragma pack(4) is usually default or ALIGN_GNUC
         }
+
+        public D77_SETTINGS(Pointer p) {
+            super(p, ALIGN_GNUC);
+            read();
+        }
     }
 
     @Structure.FieldOrder({
@@ -66,6 +71,11 @@ public interface D77Driver extends Library {
 
         public D77_PARAMETERS() {
             super(ALIGN_NONE); // #pragma pack(2)
+        }
+
+        public D77_PARAMETERS(Pointer p) {
+            super(p, ALIGN_NONE);
+            read();
         }
 
         @Override
@@ -101,7 +111,7 @@ public interface D77Driver extends Library {
 
     int D77_MidiMessageLong(Pointer lpMessage, int dwLength);
 
-    int D77_RenderSamples(short[] lpSamples);
+    int D77_RenderSamples(Pointer lpSamples);
 
     Pointer D77_AllocateMemory(int size);
 
