@@ -111,7 +111,7 @@ public interface D77Driver extends Library {
 
     int D77_MidiMessageLong(Pointer lpMessage, int dwLength);
 
-    int D77_RenderSamples(short[] lpSamples);
+    int D77_RenderSamples(Pointer lpSamples);
 
     Pointer D77_AllocateMemory(int size);
 
