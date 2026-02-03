@@ -7,12 +7,14 @@
 package vavi.sound.midi.d77;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import javax.sound.midi.Instrument;
 import javax.sound.midi.MidiChannel;
@@ -54,12 +56,32 @@ public class D77Synthesizer implements Synthesizer {
     private volatile boolean running;
     private final ConcurrentLinkedQueue<MidiMessage> messageQueue = new ConcurrentLinkedQueue<>();
 
+    private static Pointer pData;
+
     private final String dataFilePath = System.getProperty("vavi.sound.midi.d77.datafile", "src/main/resources/dswebWDM.dat");
+
+    static {
+        try {
+            try (InputStream is = D77Synthesizer.class.getResourceAsStream("/META-INF/maven/vavi/vavi-sound-d77/pom.properties")) {
+                if (is != null) {
+                    Properties props = new Properties();
+                    props.load(is);
+                    version = props.getProperty("version", "undefined in pom.properties");
+                } else {
+                    version = System.getProperty("vavi.test.version", "undefined");
+                }
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static final String version;
 
     private static class D77Info extends Info {
 
         protected D77Info() {
-            super("WebSynth D-77", "M-HT / Roman Pauer", "Software Synthesizer", "0.0.1");
+            super("WebSynth D-77", "M-HT / Roman Pauer", "Software Synthesizer for WebSynth D-77", "Version " + version);
         }
     }
 
@@ -77,12 +99,19 @@ public class D77Synthesizer implements Synthesizer {
         try {
             lib.D77_InitializePointerOffset();
 
-            byte[] data = Files.readAllBytes(Paths.get(dataFilePath));
-            Pointer pData = lib.D77_AllocateMemory(data.length);
             if (pData == null) {
-                throw new MidiUnavailableException("Failed to allocate memory for data file");
+                byte[] data = Files.readAllBytes(Paths.get(dataFilePath));
+                int dataLength = data.length;
+                pData = lib.D77_AllocateMemory(dataLength);
+                if (pData == null) {
+                    throw new MidiUnavailableException("Failed to allocate memory for data file");
+                }
+                pData.write(0, data, 0, dataLength);
+
+                if (lib.D77_InitializeDataFile(pData, dataLength - 4) == 0) {
+                    throw new MidiUnavailableException("Failed to initialize data file");
+                }
             }
-            pData.write(0, data, 0, data.length);
 
             Pointer settingsMemory = lib.D77_AllocateMemory(new D77Driver.D77_SETTINGS().size());
             if (settingsMemory == null) throw new MidiUnavailableException("Failed to allocate memory for settings");
@@ -105,10 +134,6 @@ public class D77Synthesizer implements Synthesizer {
             settings.dwTimeReso = 80;
 
             lib.D77_ValidateSettings(settings);
-
-            if (lib.D77_InitializeDataFile(pData, data.length - 4) == 0) {
-                throw new MidiUnavailableException("Failed to initialize data file");
-            }
 
             if (lib.D77_InitializeSynth(settings.dwSamplingFreq, settings.dwPolyphony, settings.dwTimeReso) == 0) {
                 throw new MidiUnavailableException("Failed to initialize synth");
@@ -194,6 +219,21 @@ public class D77Synthesizer implements Synthesizer {
     @Override
     public void close() {
         if (!isOpen) return;
+
+        // Silence the synth
+        for (int i = 0; i < 16; i++) {
+            // All Notes Off (CC 123)
+            int msg = (0xB0 | i) | (123 << 8);
+            lib.D77_MidiMessageShort(msg);
+        }
+        lib.D77_InitializeMasterVolume(0);
+
+        try {
+            Thread.sleep(50);
+        } catch (InterruptedException e) {
+            // ignore
+        }
+
         running = false;
         try {
             if (renderThread != null) renderThread.join();
@@ -342,6 +382,7 @@ public class D77Synthesizer implements Synthesizer {
                                 float gain = ((data[4] & 0x7f) | ((data[5] & 0x7f) << 7)) / 16383f;
 logger.log(Level.DEBUG, "sysex volume: gain: %4.2f".formatted(gain));
                                 volume(line, gain);
+                                return;
                             }
                         }
                     }

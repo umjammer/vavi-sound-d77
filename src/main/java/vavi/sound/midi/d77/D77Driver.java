@@ -6,9 +6,6 @@
 
 package vavi.sound.midi.d77;
 
-import java.util.Arrays;
-import java.util.List;
-
 import com.sun.jna.Library;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
@@ -76,11 +73,6 @@ public interface D77Driver extends Library {
         public D77_PARAMETERS(Pointer p) {
             super(p, ALIGN_NONE);
             read();
-        }
-
-        @Override
-        protected List<String> getFieldOrder() {
-            return Arrays.asList("wChoAdj", "wRevAdj", "wRevDrm", "wRevFb", "wOutLev", "wResoUpAdj");
         }
     }
 
