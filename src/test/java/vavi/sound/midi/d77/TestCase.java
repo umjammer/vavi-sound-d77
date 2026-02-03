@@ -7,13 +7,11 @@
 package vavi.sound.midi.d77;
 
 import java.io.BufferedInputStream;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.CountDownLatch;
 import javax.sound.midi.MetaEventListener;
-import javax.sound.midi.MidiDevice;
 import javax.sound.midi.MidiSystem;
 import javax.sound.midi.Sequence;
 import javax.sound.midi.Sequencer;
@@ -70,6 +68,8 @@ class TestCase {
         }
 
         System.setProperty("vavi.sound.midi.d77.datafile", dataFile);
+Debug.print("vavi.sound.midi.d77.datafile: " + dataFile);
+Debug.print("jna.library.path: " + System.getProperty("jna.library.path"));
     }
 
     @Test
