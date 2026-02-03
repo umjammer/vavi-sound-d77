@@ -7,12 +7,14 @@
 package vavi.sound.midi.d77;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import javax.sound.midi.Instrument;
 import javax.sound.midi.MidiChannel;
@@ -31,6 +33,7 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
 import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.SourceDataLine;
+import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 
 import static vavi.sound.SoundUtil.volume;
@@ -56,10 +59,28 @@ public class D77Synthesizer implements Synthesizer {
 
     private final String dataFilePath = System.getProperty("vavi.sound.midi.d77.datafile", "src/main/resources/dswebWDM.dat");
 
+    static {
+        try {
+            try (InputStream is = D77Synthesizer.class.getResourceAsStream("/META-INF/maven/vavi/vavi-sound-d77/pom.properties")) {
+                if (is != null) {
+                    Properties props = new Properties();
+                    props.load(is);
+                    version = props.getProperty("version", "undefined in pom.properties");
+                } else {
+                    version = System.getProperty("vavi.test.version", "undefined");
+                }
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static final String version;
+
     private static class D77Info extends Info {
 
         protected D77Info() {
-            super("WebSynth D-77", "M-HT / Roman Pauer", "Software Synthesizer", "0.0.1");
+            super("WebSynth D-77", "M-HT / Roman Pauer", "Software Synthesizer for WebSynth D-77", "Version " + version);
         }
     }
 
