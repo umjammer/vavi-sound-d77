@@ -30,7 +30,7 @@ index 3f10a6f..a23ed4e 100644
 +++ b/d77_coredrv/Makefile.aarch64-llasm-ptrofs.Darwin
 @@ -1,5 +1,7 @@
 -all: d77_coredrv
-+all: d77_coredrv d77_coredrv.dylib
++all: d77_coredrv libd77_coredrv.dylib
  
 +llasm_dir=../../SR/llasm
 +llvm_bin=/opt/homebrew/Cellar/llvm/21.1.8/bin
@@ -47,19 +47,17 @@ index 3f10a6f..a23ed4e 100644
  d77_coredrv: d77_coredrv.c ../websynth/websynth.h $(llasm_c_files) $(llasm_h_files) $(llasm_ptrofs_c_file) $(llasm_ptrofs_h_file) $(llasm_object_file)
         $(CC) -O2 -Wall -DPTROFS_64BIT -o d77_coredrv d77_coredrv.c $(llasm_c_files) $(llasm_ptrofs_c_file) $(llasm_object_file) -I../websynth -I../websynth/llasm -I../websynth/ptrofs -lm -framework CoreMIDI -framework CoreFoundation -framework AudioToolbox
  
-+d77_coredrv.dylib: d77_coredrv.c ../websynth/websynth.h $(llasm_c_files) $(llasm_h_files) $(llasm_ptrofs_c_file) $(llasm_ptrofs_h_file) $(llasm_object_file)
-+       $(CC) -dynamiclib -O2 -Wall -DPTROFS_64BIT -o d77_coredrv.dylib d77_coredrv.c $(llasm_c_files) $(llasm_ptrofs_c_file) $(llasm_object_file) -I../websynth -I../websynth/llasm -I../websynth/ptrofs -lm -framework CoreMIDI -framework CoreFoundation -framework AudioToolbox
++libd77_coredrv.dylib: d77_coredrv.c ../websynth/websynth.h $(llasm_c_files) $(llasm_h_files) $(llasm_ptrofs_c_file) $(llasm_ptrofs_h_file) $(llasm_object_file)
++       $(CC) -dynamiclib -O2 -Wall -DPTROFS_64BIT -o libd77_coredrv.dylib d77_coredrv.c $(llasm_c_files) $(llasm_ptrofs_c_file) $(llasm_object_file) -I../websynth -I../websynth/llasm -I../websynth/ptrofs -lm -framework CoreMIDI -framework CoreFoundation -framework AudioToolbox
 +
  .PHONY: clean
  clean:
 -       rm -f d77_coredrv $(llasm_object_file)
-+       rm -f d77_coredrv d77_coredrv.dylib $(llasm_object_file)
++       rm -f d77_coredrv libd77_coredrv.dylib $(llasm_object_file)
 ```
-
 
 ```shell
 $ make -f Makefile.aarch64-llasm-ptrofs.Darwin
-$ ln -s ln -s d77_coredrv.dylib libd77_coredrv.dylib
 ```
 
 ## Usage
