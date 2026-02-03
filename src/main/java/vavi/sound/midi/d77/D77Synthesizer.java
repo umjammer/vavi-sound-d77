@@ -363,6 +363,7 @@ public class D77Synthesizer implements Synthesizer {
                                 float gain = ((data[4] & 0x7f) | ((data[5] & 0x7f) << 7)) / 16383f;
 logger.log(Level.DEBUG, "sysex volume: gain: %4.2f".formatted(gain));
                                 volume(line, gain);
+                                return;
                             }
                         }
                     }
