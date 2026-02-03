@@ -33,7 +33,6 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
 import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.SourceDataLine;
-import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 
 import static vavi.sound.SoundUtil.volume;
@@ -56,6 +55,8 @@ public class D77Synthesizer implements Synthesizer {
     private Thread renderThread;
     private volatile boolean running;
     private final ConcurrentLinkedQueue<MidiMessage> messageQueue = new ConcurrentLinkedQueue<>();
+
+    private static Pointer pData;
 
     private final String dataFilePath = System.getProperty("vavi.sound.midi.d77.datafile", "src/main/resources/dswebWDM.dat");
 
@@ -98,12 +99,19 @@ public class D77Synthesizer implements Synthesizer {
         try {
             lib.D77_InitializePointerOffset();
 
-            byte[] data = Files.readAllBytes(Paths.get(dataFilePath));
-            Pointer pData = lib.D77_AllocateMemory(data.length);
             if (pData == null) {
-                throw new MidiUnavailableException("Failed to allocate memory for data file");
+                byte[] data = Files.readAllBytes(Paths.get(dataFilePath));
+                int dataLength = data.length;
+                pData = lib.D77_AllocateMemory(dataLength);
+                if (pData == null) {
+                    throw new MidiUnavailableException("Failed to allocate memory for data file");
+                }
+                pData.write(0, data, 0, dataLength);
+
+                if (lib.D77_InitializeDataFile(pData, dataLength - 4) == 0) {
+                    throw new MidiUnavailableException("Failed to initialize data file");
+                }
             }
-            pData.write(0, data, 0, data.length);
 
             Pointer settingsMemory = lib.D77_AllocateMemory(new D77Driver.D77_SETTINGS().size());
             if (settingsMemory == null) throw new MidiUnavailableException("Failed to allocate memory for settings");
@@ -126,10 +134,6 @@ public class D77Synthesizer implements Synthesizer {
             settings.dwTimeReso = 80;
 
             lib.D77_ValidateSettings(settings);
-
-            if (lib.D77_InitializeDataFile(pData, data.length - 4) == 0) {
-                throw new MidiUnavailableException("Failed to initialize data file");
-            }
 
             if (lib.D77_InitializeSynth(settings.dwSamplingFreq, settings.dwPolyphony, settings.dwTimeReso) == 0) {
                 throw new MidiUnavailableException("Failed to initialize synth");
@@ -215,6 +219,21 @@ public class D77Synthesizer implements Synthesizer {
     @Override
     public void close() {
         if (!isOpen) return;
+
+        // Silence the synth
+        for (int i = 0; i < 16; i++) {
+            // All Notes Off (CC 123)
+            int msg = (0xB0 | i) | (123 << 8);
+            lib.D77_MidiMessageShort(msg);
+        }
+        lib.D77_InitializeMasterVolume(0);
+
+        try {
+            Thread.sleep(50);
+        } catch (InterruptedException e) {
+            // ignore
+        }
+
         running = false;
         try {
             if (renderThread != null) renderThread.join();
